@@ -89,21 +89,23 @@ def format_title(title_text):
     return re.sub(r'[^\x00-\x7F]', '', title_text).strip()
 
 
-def parse_titles():
+def parse_titles_and_percentages(soup):
     titles = []
-    parsed_titles = soup.findAll('h3', attrs={'class': 'game-db-title'})
-    for title_html in parsed_titles:
-        titles.append(format_title(title_html.text))
-    return titles
-
-
-def parse_percentages():
-    parsed_percentages = soup.findAll(
-        'span', attrs={'class': 'percent-complete'})
     percentages = []
-    for percentage in parsed_percentages:
-        percentages.append(percentage.text[:-1])
-    return percentages
+    # game_infos = soup.findAll('div', attrs={'class': 'game-info'})
+    game_infos = soup.findAll(
+        'li',
+        attrs={'class': lambda x: x in ['t0', 't1']}
+    )
+    import pdb; pdb.set_trace();
+    for game_info in game_infos:
+        title_html = game_info.find('h3', attrs={'class': 'game-db-title'})
+        titles.append(format_title(title_html.text))
+        parent = game_info.parent
+        percentage_html = parent.find('span', attrs={'class': 'percent-complete'})
+        if not percentage_html:
+            percentages.append('')
+    return titles, percentages
 
 
 def title_translate(title, title_lookup):
@@ -154,22 +156,46 @@ def get_howlongtobeats(titles):
 
 
 def parse_score_json(response_json, title):
+    print("""\
+Looking For:
+    {}""".format(title))
     for response in response_json['results']:
-        print(response)
+        # print(response)
         response_title = response['name']
         if get_normalized(title) == get_normalized(response_title):
             platform = response['platform']
-            score = response['score']
-            print("""\
-Title: {response_title}
-Platform: {platform}
-Score: {score}
+            if platform != 'iOS':
+                score = response['score']
+                print("""\
+Found:
+    {response_title}
+    Platform: {platform}
+    Score: {score}
 """.format(**locals()))
-            return response['score']
+                return score
+    print('Not Found\n')
     return 'Not Found'
 
 
 metacritic_title_lookup = {
+    'Batman:Arkham City PC': 'Batman: Arkham City',
+    'SuperStreetFighter2THD': 'Super Street Fighter II Turbo HD Remix',
+    'Monkey Island 2: SE': "Monkey Island 2 Special Edition: LeChuck's Revenge",
+    'Monkey Island: SE': 'The Secret of Monkey Island: Special Edition',
+    'Call of Duty 4': 'Call of Duty 4: Modern Warfare',
+    'Marvel vs Capcom 2': 'Marvel vs. Capcom 2',
+    "TC's RainbowSix Vegas": "Tom Clancy's Rainbow Six: Vegas",
+    'LEGO Star Wars II': 'Lego Star Wars II: The Original Trilogy',
+    'GTA IV': 'Grand Theft Auto IV',
+    'Castlevania: SOTN': 'Castlevania: Symphony of the Night',
+    'TMNT 1989 Arcade': 'Teenage Mutant Ninja Turtles (2007)',
+    'ORION: Dino Beatdown': 'ORION: Dino Horde',
+    'Crysis 2 Maximum Edition': 'Crysis 2',
+    'BIT.TRIP Presents... Runner2: Future Legend of Rhythm Alien': (
+        'Bit.Trip Presents...Runner2: Future Legend of Rhythm Alien'
+    ),
+    'Ys I': 'Ys I & II Chronicles',
+    'Ys II': 'Ys I & II Chronicles',
 }
 def get_scores(titles):
     print('Retrieving scores:')
@@ -180,25 +206,36 @@ def get_scores(titles):
     }
     scores = []
     for title in titles:
+        title = title_translate(title, metacritic_title_lookup)
         params = {
             'retry': 4,
             'title': title,
         }
-        response = requests.post(url, headers=headers, params=params)
+        try:
+            response = requests.post(url, headers=headers, params=params, timeout=20)
+        except:
+            try:
+                response = requests.post(url, headers=headers, params=params, timeout=20)
+            except:
+                print('Timeout on {}'.format(title))
+                scores.append('Timeout')
+                continue
         response_json = json.loads(response.text)
         scores.append(parse_score_json(response_json, title))
+    return scores
 
 
 if __name__ == '__main__':
     url = 'http://profiles.exophase.com/robotherapy/'
     response = requests.get(url)
     soup = BeautifulSoup(response.text)
-    titles = parse_titles()
-    percentages = parse_percentages()
-    #long_to_beats = get_howlongtobeats(titles)
-    scores = get_scores(titles)
+    import pdb; pdb.set_trace()
+    titles, percentages = parse_titles_and_percentages(soup)
+    #scores = get_scores(titles)
+    long_to_beats = get_howlongtobeats(titles)
+    import pdb; pdb.set_trace()
 
-    gameslist = [list(a) for a in zip(titles, percentages)]
+    gameslist = [list(a) for a in zip(titles, percentages, scores)]
     for i in range(0, len(gameslist)):
         gameslist[i].extend(long_to_beats[i])
 
@@ -209,6 +246,7 @@ if __name__ == '__main__':
         csv_file.writerow([
             'Name',
             'Completion Percentage',
+            'Critics Score',
             'Main Time',
             'Main + Extras Time',
             'Completionist Time',
