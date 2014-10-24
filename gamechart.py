@@ -88,24 +88,29 @@ def parse_howlongtobeat(response, title):
 def format_title(title_text):
     return re.sub(r'[^\x00-\x7F]', '', title_text).strip()
 
-
 def parse_titles_and_percentages(soup):
     titles = []
     percentages = []
-    # game_infos = soup.findAll('div', attrs={'class': 'game-info'})
-    game_infos = soup.findAll(
-        'li',
-        attrs={'class': lambda x: x in ['t0', 't1']}
-    )
-    import pdb; pdb.set_trace();
-    for game_info in game_infos:
-        title_html = game_info.find('h3', attrs={'class': 'game-db-title'})
-        titles.append(format_title(title_html.text))
-        parent = game_info.parent
-        percentage_html = parent.find('span', attrs={'class': 'percent-complete'})
-        if not percentage_html:
+    parsed_titles = soup.findAll('h3', attrs={'class': 'game-db-title'})
+    for title_html in parsed_titles:
+        title_formatted = format_title(title_html.text)
+        titles.append(title_formatted)
+        parent = title_html.parent.parent
+        percentage = parent.find('span', attrs={'class': 'percent-complete'})
+        if percentage:
+            percentages.append(percentage.text[:-1])
+        else:
             percentages.append('')
     return titles, percentages
+
+
+def parse_percentages(soup):
+    parsed_percentages = soup.findAll(
+        'span', attrs={'class': 'percent-complete'})
+    percentages = []
+    for percentage in parsed_percentages:
+        percentages.append(percentage.text[:-1])
+    return percentages
 
 
 def title_translate(title, title_lookup):
@@ -229,8 +234,11 @@ if __name__ == '__main__':
     url = 'http://profiles.exophase.com/robotherapy/'
     response = requests.get(url)
     soup = BeautifulSoup(response.text)
-    import pdb; pdb.set_trace()
+    # titles = parse_titles(soup)
     titles, percentages = parse_titles_and_percentages(soup)
+    print('Titles: {}'.format(len(titles)))
+    print('Percentages: {}'.format(len(percentages)))
+    # percentages = parse_percentages(soup)
     #scores = get_scores(titles)
     long_to_beats = get_howlongtobeats(titles)
     import pdb; pdb.set_trace()
