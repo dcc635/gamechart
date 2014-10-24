@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 import csv
+import json
 import os
 import re
 import sys
@@ -87,7 +88,33 @@ def parse_howlongtobeat(response, title):
 def format_title(title_text):
     return re.sub(r'[^\x00-\x7F]', '', title_text).strip()
 
-title_lookup = {
+
+def parse_titles():
+    titles = []
+    parsed_titles = soup.findAll('h3', attrs={'class': 'game-db-title'})
+    for title_html in parsed_titles:
+        titles.append(format_title(title_html.text))
+    return titles
+
+
+def parse_percentages():
+    parsed_percentages = soup.findAll(
+        'span', attrs={'class': 'percent-complete'})
+    percentages = []
+    for percentage in parsed_percentages:
+        percentages.append(percentage.text[:-1])
+    return percentages
+
+
+def title_translate(title, title_lookup):
+    if title not in title_lookup:
+        return title
+    new_title = title_lookup[title]
+    print('{} --> {}'.format(title, new_title))
+    return new_title
+
+
+how_long_title_lookup = {
     'LEGO Rock Band': 'Lego Rock Band (Console)',
     'Mortal Kombat': 'Mortal Kombat (2011)',
     'Microsoft Solitaire': 'Microsoft Solitaire Collection',
@@ -111,36 +138,13 @@ title_lookup = {
     'Ys I': 'Ys I Chronicles Plus',
     'Ys II': 'Ys II Chronicles Plus',
 }
-def parse_titles():
-    titles = []
-    parsed_titles = soup.findAll('h3', attrs={'class': 'game-db-title'})
-    print('Alterations:')
-    for title_html in parsed_titles:
-        title = format_title(title_html.text)
-        if title in title_lookup:
-            new_title = title_lookup[title]
-            print('{} --> {}'.format(title, new_title))
-            title = new_title
-        titles.append(title)
-    print('')
-    return titles
-
-
-def parse_percentages():
-    parsed_percentages = soup.findAll(
-        'span', attrs={'class': 'percent-complete'})
-    percentages = []
-    for percentage in parsed_percentages:
-        percentages.append(percentage.text[:-1])
-    return percentages
-
-
 def get_howlongtobeats(titles):
     print('Number of games from exophase: {}'.format(len(titles)))
     print('Retrieving HowLongToBeat.com data:')
     long_to_beats = []
     i = 1
     for title in titles:
+        title = title_translate(title, how_long_title_lookup)
         print_marker(title, i)
         response = query_howlongtobeat(title)
         parsed_data = parse_howlongtobeat(response, title)
@@ -149,22 +153,40 @@ def get_howlongtobeats(titles):
     return long_to_beats
 
 
+def parse_score_json(response_json, title):
+    for response in response_json['results']:
+        print(response)
+        response_title = response['name']
+        if get_normalized(title) == get_normalized(response_title):
+            platform = response['platform']
+            score = response['score']
+            print("""\
+Title: {response_title}
+Platform: {platform}
+Score: {score}
+""".format(**locals()))
+            return response['score']
+    return 'Not Found'
+
+
+metacritic_title_lookup = {
+}
 def get_scores(titles):
+    print('Retrieving scores:')
     url = 'https://byroredux-metacritic.p.mashape.com/search/game'
     headers = {
         'X-Mashape-Key': os.getenv('METACRITIC_API_KEY'),
         'Content-Type': 'application/x-www-form-urlencoded',
     }
-    critic_scores = []
-    user_scores = []
+    scores = []
     for title in titles:
         params = {
             'retry': 4,
             'title': title,
         }
-        import pdb; pdb.set_trace()
         response = requests.post(url, headers=headers, params=params)
-        pass
+        response_json = json.loads(response.text)
+        scores.append(parse_score_json(response_json, title))
 
 
 if __name__ == '__main__':
