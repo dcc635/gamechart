@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 import csv
+import os
 import re
 import sys
 import time
@@ -148,14 +149,33 @@ def get_howlongtobeats(titles):
     return long_to_beats
 
 
+def get_scores(titles):
+    url = 'https://byroredux-metacritic.p.mashape.com/search/game'
+    headers = {
+        'X-Mashape-Key': os.getenv('METACRITIC_API_KEY'),
+        'Content-Type': 'application/x-www-form-urlencoded',
+    }
+    critic_scores = []
+    user_scores = []
+    for title in titles:
+        params = {
+            'retry': 4,
+            'title': title,
+        }
+        import pdb; pdb.set_trace()
+        response = requests.post(url, headers=headers, params=params)
+        pass
+
+
 if __name__ == '__main__':
     url = 'http://profiles.exophase.com/robotherapy/'
     response = requests.get(url)
     soup = BeautifulSoup(response.text)
     titles = parse_titles()
     percentages = parse_percentages()
+    #long_to_beats = get_howlongtobeats(titles)
+    scores = get_scores(titles)
 
-    long_to_beats = get_howlongtobeats(titles)
     gameslist = [list(a) for a in zip(titles, percentages)]
     for i in range(0, len(gameslist)):
         gameslist[i].extend(long_to_beats[i])
