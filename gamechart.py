@@ -238,16 +238,13 @@ if __name__ == '__main__':
     titles, percentages = parse_titles_and_percentages(soup)
     print('Titles: {}'.format(len(titles)))
     print('Percentages: {}'.format(len(percentages)))
-    # percentages = parse_percentages(soup)
-    #scores = get_scores(titles)
+    scores = get_scores(titles)
+    print('Scores: {}'.format(len(scores)))
     long_to_beats = get_howlongtobeats(titles)
-    import pdb; pdb.set_trace()
 
     gameslist = [list(a) for a in zip(titles, percentages, scores)]
     for i in range(0, len(gameslist)):
         gameslist[i].extend(long_to_beats[i])
-
-    sorted_gameslist = sorted(gameslist, key=lambda x: int(x[1]), reverse=True)
 
     with open('games.csv', 'w') as file_:
         csv_file = csv.writer(file_)
@@ -260,7 +257,7 @@ if __name__ == '__main__':
             'Completionist Time',
             'Combined Time',
         ])
-        for game in sorted_gameslist:
+        for game in gameslist:
             csv_file.writerow(game)
 
     drive_upload.run()
