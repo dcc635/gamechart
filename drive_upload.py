@@ -25,7 +25,7 @@ def run():
     # Run through the OAuth flow and retrieve credentials
     flow = OAuth2WebServerFlow(CLIENT_ID, CLIENT_SECRET, OAUTH_SCOPE, REDIRECT_URI)
     authorize_url = flow.step1_get_authorize_url()
-    print 'Go to the following link in your browser: ' + authorize_url
+    print('Go to the following link in your browser: ' + authorize_url)
     code = raw_input('Enter verification code: ').strip()
     credentials = flow.step2_exchange(code)
 

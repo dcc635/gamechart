@@ -1,16 +1,41 @@
-from __future__ import print_function
-
 import csv
 import json
 import os
 import re
 import sys
 import time
+from decimal import Decimal
+from pprint import pprint
+import matplotlib.pyplot as plt
+import numpy as np
 
 import requests
 from bs4 import BeautifulSoup
 
-import drive_upload
+
+# import drive_upload
+
+
+class Game:
+
+    def __init__(self, title=None, percentage=None, platform=None, score=None, main=None, main_extra=None, completionist=None):
+        self.title = title
+        self.percentage = percentage
+        self.platform = platform
+        self.score = score
+        self.main = main
+        self.main_extra = main_extra
+        self.completionist = completionist
+
+    def __str__(self):
+        return '(' \
+               f'title={self.title}, ' \
+               f'percentage={self.percentage}, ' \
+               f'platform={self.platform}, ' \
+               f'score={self.score}, ' \
+               f'main={self.main}, ' \
+               f'main_extra={self.main_extra}, ' \
+               f'completionist={self.completionist})'
 
 
 def get_normalized(string_):
@@ -22,7 +47,7 @@ def get_sortable_time(time):
     time = time.replace(u'\xbd', u'.5')
     if 'Mins' in time:
         time_mins = int(time.replace(' Mins', ''))
-        return str(time_mins/60.0)
+        return str(time_mins / 60.0)
     return time.replace(' Hours', '').replace(' Hour', '')
 
 
@@ -34,53 +59,57 @@ def print_marker(title, iteration):
 
 def query_howlongtobeat(title):
     url = (
-        'http://www.howlongtobeat.com/search_main.php?'
-        't=games&page=1&sorthead=&sortd=Normal&plat=&detail=0'
+        'https://howlongtobeat.com/search_results?page=1'
     )
-    headers = {
-        'referer': 'http://www.howlongtobeat.com/',
-    }
-    params = {
-        't': 'games',
-        'page': '1',
-        'sorthead': '',
-        'sortd': 'Normal',
+    # headers = {
+    #     'referer': 'http://www.howlongtobeat.com/',
+    # }
+    # params = {
+    #     'queryString':
+    #     't': 'games',
+    #     'page': '1',
+    #     'sorthead': '',
+    #     'sortd': 'Normal',
+    #     'plat': '',
+    #     'detail': '0',
+    # }
+    payload = {
+        'queryString': title,
+        't': games,
+        'sorthead': 'popular',
+        'sortd': 'Normal Order',
         'plat': '',
-        'detail': '0',
+        'length_type': 'main',
+        'length_min': '',
+        'length_max': ''
     }
-    payload = {'queryString': title}
-    return requests.post(url, data=payload, headers=headers, params=params)
+    return requests.post(url, data=payload)
 
 
-def parse_tidbits(game_detail):
+def parse_tidbits(game, game_detail):
     tidbits = game_detail.findAll(
         'div',
-        attrs={'class': 'gamelist_tidbit'}
+        attrs={'class': 'search_list_tidbit'}
     )
-    main = ''
-    main_extra = ''
-    completion = ''
-    combined = ''
-    if len(tidbits) == 8:
-        main        = get_sortable_time(tidbits[1].text)
-        main_extra  = get_sortable_time(tidbits[3].text)
-        completion  = get_sortable_time(tidbits[5].text)
-        combined    = get_sortable_time(tidbits[7].text)
+    if len(tidbits) == 6:
+        game.main = get_sortable_time(tidbits[1].text[:-1])
+        game.main_extra = get_sortable_time(tidbits[3].text[:-1])
+        game.completionist = get_sortable_time(tidbits[5].text[:-1])
     elif len(tidbits) == 2:
-        main        = get_sortable_time(tidbits[1].text)
-        combined    = main
-    return [main, main_extra, completion, combined]
+        game.main = get_sortable_time(tidbits[1].text)
+    return
 
 
-def parse_howlongtobeat(response, title):
-    soup = BeautifulSoup(response.text)
-    game_details = soup.findAll('div', attrs={'class': 'gamelist_details'})
+def parse_howlongtobeat(response, game):
+    soup = BeautifulSoup(response.text, features='html.parser')
+    game_details = soup.findAll('div', attrs={'class': 'search_list_details'})
     for game_detail in game_details:
         links = game_detail.findAll('a')
         for link in links:
-            if get_normalized(title) == get_normalized(link.text):
+            if get_normalized(game.title) == get_normalized(link.text):
                 print(link.text)
-                return parse_tidbits(game_detail)
+                parse_tidbits(game, game_detail)
+                return
     print('Not Found')
     return ['Not found', '', '', '']
 
@@ -88,20 +117,33 @@ def parse_howlongtobeat(response, title):
 def format_title(title_text):
     return re.sub(r'[^\x00-\x7F]', '', title_text).strip()
 
-def parse_titles_and_percentages(soup):
-    titles = []
-    percentages = []
+
+def parse_games(soup):
+    games = []
     parsed_titles = soup.findAll('h3', attrs={'class': 'game-db-title'})
     for title_html in parsed_titles:
-        title_formatted = format_title(title_html.text)
-        titles.append(title_formatted)
+        game = Game()
+
+        formatted_title = format_title(title_html.text)
+
+        game.title = title_translate(formatted_title, metacritic_title_lookup)
+
         parent = title_html.parent.parent
-        percentage = parent.find('span', attrs={'class': 'percent-complete'})
-        if percentage:
-            percentages.append(percentage.text[:-1])
+
+        # percentage = parent.find('span', attrs={'class': 'percent-complete'})
+        percentage_parent = parent.find('div', attrs={'class': 'progress-bar'})
+        if percentage_parent is None:
+            game.percentage = ''
         else:
-            percentages.append('')
-    return titles, percentages
+            percentage_span = percentage_parent.find('span')
+            game.percentage = percentage_span.text[:-1] if percentage_span else ''
+
+        platform = parent.find('div', attrs={'class': 'inline-pf'})
+        game.platform = platform.text if platform else ''
+
+        if game.platform not in ('Xbox 360', 'Xbox One', 'Vita'):
+            games.append(game)
+    return games
 
 
 def parse_percentages(soup):
@@ -120,144 +162,147 @@ def title_translate(title, title_lookup):
     print('{} --> {}'.format(title, new_title))
     return new_title
 
+how_long_title_lookup = {}
+# how_long_title_lookup = {
+#     'LEGO Rock Band': 'Lego Rock Band (Console)',
+#     'Mortal Kombat': 'Mortal Kombat (2011)',
+#     'Microsoft Solitaire': 'Microsoft Solitaire Collection',
+#     'Batman:Arkham City PC': 'Batman: Arkham City',
+#     'SUPER STREETFIGHTER IV': 'Super Street Fighter IV',
+#     'SuperStreetFighter2THD': 'Super Street Fighter II Turbo HD Remix',
+#     'Monkey Island 2: SE': "Monkey Island 2: LeChuck's Revenge",
+#     'Monkey Island: SE': 'The Secret of Monkey Island',
+#     'Call of Duty 4': 'Call of Duty 4: Modern Warfare',
+#     "TC's RainbowSix Vegas": "Tom Clancy's Rainbow Six: Vegas",
+#     'LEGO Star Wars II': 'Lego Star Wars II: The Original Trilogy',
+#     'GTA IV': 'Grand Theft Auto IV',
+#     'Castlevania: SOTN': 'Castlevania: Symphony of the Night',
+#     'Sonic The Hedgehog 2': 'Sonic the Hedgehog 2 (16-bit)',
+#     'TMNT 1989 Arcade': 'Teenage Mutant Ninja Turtles II: The Arcade Game',
+#     'ORION: Dino Beatdown': 'ORION: Dino Horde',
+#     'Crysis 2 Maximum Edition': 'Crysis 2',
+#     'BIT.TRIP Presents... Runner2: Future Legend of Rhythm Alien': (
+#         'Bit.Trip Presents Runner 2: Future Legend of Rhythm Alien'
+#     ),
+#     'Ys I': 'Ys I Chronicles Plus',
+#     'Ys II': 'Ys II Chronicles Plus',
+# }
 
-how_long_title_lookup = {
-    'LEGO Rock Band': 'Lego Rock Band (Console)',
-    'Mortal Kombat': 'Mortal Kombat (2011)',
-    'Microsoft Solitaire': 'Microsoft Solitaire Collection',
-    'Batman:Arkham City PC': 'Batman: Arkham City',
-    'SUPER STREETFIGHTER IV': 'Super Street Fighter IV',
-    'SuperStreetFighter2THD': 'Super Street Fighter II Turbo HD Remix',
-    'Monkey Island 2: SE': "Monkey Island 2: LeChuck's Revenge",
-    'Monkey Island: SE': 'The Secret of Monkey Island',
-    'Call of Duty 4': 'Call of Duty 4: Modern Warfare',
-    "TC's RainbowSix Vegas": "Tom Clancy's Rainbow Six: Vegas",
-    'LEGO Star Wars II': 'Lego Star Wars II: The Original Trilogy',
-    'GTA IV': 'Grand Theft Auto IV',
-    'Castlevania: SOTN': 'Castlevania: Symphony of the Night',
-    'Sonic The Hedgehog 2': 'Sonic the Hedgehog 2 (16-bit)',
-    'TMNT 1989 Arcade': 'Teenage Mutant Ninja Turtles II: The Arcade Game',
-    'ORION: Dino Beatdown': 'ORION: Dino Horde',
-    'Crysis 2 Maximum Edition': 'Crysis 2',
-    'BIT.TRIP Presents... Runner2: Future Legend of Rhythm Alien': (
-        'Bit.Trip Presents Runner 2: Future Legend of Rhythm Alien'
-    ),
-    'Ys I': 'Ys I Chronicles Plus',
-    'Ys II': 'Ys II Chronicles Plus',
-}
-def get_howlongtobeats(titles):
-    print('Number of games from exophase: {}'.format(len(titles)))
+
+def get_howlongtobeats(games):
     print('Retrieving HowLongToBeat.com data:')
-    long_to_beats = []
-    i = 1
-    for title in titles:
-        title = title_translate(title, how_long_title_lookup)
-        print_marker(title, i)
+    for (index, game) in enumerate(games):
+        title = title_translate(game.title, how_long_title_lookup)
+        print_marker(title, index)
         response = query_howlongtobeat(title)
-        parsed_data = parse_howlongtobeat(response, title)
-        long_to_beats.append(parsed_data)
-        i += 1
-    return long_to_beats
-
-
-def parse_score_json(response_json, title):
-    print("""\
-Looking For:
-    {}""".format(title))
-    for response in response_json['results']:
-        # print(response)
-        response_title = response['name']
-        if get_normalized(title) == get_normalized(response_title):
-            platform = response['platform']
-            if platform != 'iOS':
-                score = response['score']
-                print("""\
-Found:
-    {response_title}
-    Platform: {platform}
-    Score: {score}
-""".format(**locals()))
-                return score
-    print('Not Found\n')
-    return 'Not Found'
+        parse_howlongtobeat(response, game)
+    return
 
 
 metacritic_title_lookup = {
-    'Batman:Arkham City PC': 'Batman: Arkham City',
-    'SuperStreetFighter2THD': 'Super Street Fighter II Turbo HD Remix',
-    'Monkey Island 2: SE': "Monkey Island 2 Special Edition: LeChuck's Revenge",
-    'Monkey Island: SE': 'The Secret of Monkey Island: Special Edition',
-    'Call of Duty 4': 'Call of Duty 4: Modern Warfare',
-    'Marvel vs Capcom 2': 'Marvel vs. Capcom 2',
-    "TC's RainbowSix Vegas": "Tom Clancy's Rainbow Six: Vegas",
-    'LEGO Star Wars II': 'Lego Star Wars II: The Original Trilogy',
-    'GTA IV': 'Grand Theft Auto IV',
-    'Castlevania: SOTN': 'Castlevania: Symphony of the Night',
-    'TMNT 1989 Arcade': 'Teenage Mutant Ninja Turtles (2007)',
-    'ORION: Dino Beatdown': 'ORION: Dino Horde',
-    'Crysis 2 Maximum Edition': 'Crysis 2',
-    'BIT.TRIP Presents... Runner2: Future Legend of Rhythm Alien': (
-        'Bit.Trip Presents...Runner2: Future Legend of Rhythm Alien'
-    ),
-    'Ys I': 'Ys I & II Chronicles',
-    'Ys II': 'Ys I & II Chronicles',
+    'BioShock Remastered': 'BioShock'
 }
-def get_scores(titles):
+# metacritic_title_lookup = {
+#     'Batman:Arkham City PC': 'Batman: Arkham City',
+#     'SuperStreetFighter2THD': 'Super Street Fighter II Turbo HD Remix',
+#     'Monkey Island 2: SE': "Monkey Island 2 Special Edition: LeChuck's Revenge",
+#     'Monkey Island: SE': 'The Secret of Monkey Island: Special Edition',
+#     'Call of Duty 4': 'Call of Duty 4: Modern Warfare',
+#     'Marvel vs Capcom 2': 'Marvel vs. Capcom 2',
+#     "TC's RainbowSix Vegas": "Tom Clancy's Rainbow Six: Vegas",
+#     'LEGO Star Wars II': 'Lego Star Wars II: The Original Trilogy',
+#     'GTA IV': 'Grand Theft Auto IV',
+#     'Castlevania: SOTN': 'Castlevania: Symphony of the Night',
+#     'TMNT 1989 Arcade': 'Teenage Mutant Ninja Turtles (2007)',
+#     'ORION: Dino Beatdown': 'ORION: Dino Horde',
+#     'Crysis 2 Maximum Edition': 'Crysis 2',
+#     'BIT.TRIP Presents... Runner2: Future Legend of Rhythm Alien': (
+#         'Bit.Trip Presents...Runner2: Future Legend of Rhythm Alien'
+#     ),
+#     'Ys I': 'Ys I & II Chronicles',
+#     'Ys II': 'Ys I & II Chronicles',
+# }
+
+PLATFORM_MAPPING = {
+    'PS3': 'playstation-3',
+    'PS4': 'playstation-4',
+    'Xbox 360': 'xbox-360',
+    'Steam': 'pc',
+    'Xbox One': 'xbox-one',
+    'Vita': 'playstation-vita'
+}
+
+
+def get_scores(games):
     print('Retrieving scores:')
-    url = 'https://byroredux-metacritic.p.mashape.com/search/game'
     headers = {
-        'X-Mashape-Key': os.getenv('METACRITIC_API_KEY'),
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'x-rapidapi-host': "chicken-coop.p.rapidapi.com",
+        'x-rapidapi-key': os.getenv('RAPID_API_KEY')
     }
-    scores = []
-    for title in titles:
-        title = title_translate(title, metacritic_title_lookup)
-        params = {
-            'retry': 4,
-            'title': title,
-        }
-        try:
-            response = requests.post(url, headers=headers, params=params, timeout=20)
-        except:
-            try:
-                response = requests.post(url, headers=headers, params=params, timeout=20)
-            except:
-                print('Timeout on {}'.format(title))
-                scores.append('Timeout')
-                continue
+    for game in games:
+        url = f'https://chicken-coop.p.rapidapi.com/games/{game.title}'
+        params = {'platform': PLATFORM_MAPPING[game.platform]}
+        response = requests.get(url, headers=headers, params=params, timeout=20)
         response_json = json.loads(response.text)
-        scores.append(parse_score_json(response_json, title))
-    return scores
+
+        result_ = response_json['result']
+        game.score = 0 if result_ == 'No result' else result_['score']
+        pprint(str(game))
+    return
 
 
 if __name__ == '__main__':
+    print('Getting exophase')
     url = 'http://profiles.exophase.com/robotherapy/'
     response = requests.get(url)
-    soup = BeautifulSoup(response.text)
-    # titles = parse_titles(soup)
-    titles, percentages = parse_titles_and_percentages(soup)
-    print('Titles: {}'.format(len(titles)))
-    print('Percentages: {}'.format(len(percentages)))
-    scores = get_scores(titles)
-    print('Scores: {}'.format(len(scores)))
-    long_to_beats = get_howlongtobeats(titles)
+    soup = BeautifulSoup(response.text, features="html.parser")
+    games = parse_games(soup)[:20]
+    print('Number of Games: {}'.format(len(games)))
+    print('Getting scores')
+    get_scores(games)
+    print('Getting howlongtobeats')
+    get_howlongtobeats(games)
 
-    gameslist = [list(a) for a in zip(titles, percentages, scores)]
-    for i in range(0, len(gameslist)):
-        gameslist[i].extend(long_to_beats[i])
+    # with open('games.csv', 'w') as file_:
+    #     csv_file = csv.writer(file_)
+    #     csv_file.writerow([
+    #         'Name',
+    #         'Completion Percentage',
+    #         'Critics Score',
+    #         'Main Time',
+    #         'Main + Extras Time',
+    #         'Completionist Time'
+    #     ])
+    #     for game in games:
+    #         csv_file.writerow([
+    #             game.title,
+    #             game.percentage,
+    #             game.score,
+    #             game.main,
+    #             game.main_extra,
+    #             game.completionist
+    #         ])
 
-    with open('games.csv', 'w') as file_:
-        csv_file = csv.writer(file_)
-        csv_file.writerow([
-            'Name',
-            'Completion Percentage',
-            'Critics Score',
-            'Main Time',
-            'Main + Extras Time',
-            'Completionist Time',
-            'Combined Time',
-        ])
-        for game in gameslist:
-            csv_file.writerow(game)
+    # games = [
+    #     Game(title='Bastion', score=86, main=7),
+    #     Game(title='Halo 4', score=87, main=8),
+    #     Game(title='Bastion', score=86, main=7),
+    #     Game(title='The Jackbox Party Pack 2', score=0, main=0),
+    #     Game(title='Red Dead Redemption 2', score=94, main=47)
+    # ]
 
-    drive_upload.run()
+    x = [game.score for game in games]
+    y = [(0 if game.main is None else Decimal(game.main)) for game in games]
+
+    plt.figure(num=None, figsize=(10, 10), dpi=80, facecolor='w', edgecolor='k')
+    plt.scatter(x, y)
+    plt.xlabel('Score')
+    plt.ylabel('Main hours')
+
+    for i, game in enumerate(games):
+        plt.annotate(game.title, (x[i], y[i]))
+
+    plt.show()
+
+
+    # drive_upload.run()
