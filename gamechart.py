@@ -100,13 +100,13 @@ def parse_tidbits(game, game_detail):
     return
 
 
-def parse_howlongtobeat(response, game):
+def parse_howlongtobeat(response, game, translated_title):
     soup = BeautifulSoup(response.text, features='html.parser')
     game_details = soup.findAll('div', attrs={'class': 'search_list_details'})
     for game_detail in game_details:
         links = game_detail.findAll('a')
         for link in links:
-            if get_normalized(game.title) == get_normalized(link.text):
+            if get_normalized(translated_title) == get_normalized(link.text):
                 print(link.text)
                 parse_tidbits(game, game_detail)
                 return
@@ -118,6 +118,12 @@ def format_title(title_text):
     return re.sub(r'[^\x00-\x7F]', '', title_text).strip()
 
 
+skipped_games = [
+    'Awesomenauts',
+    'Dota 2'
+]
+
+
 def parse_games(soup):
     games = []
     parsed_titles = soup.findAll('h3', attrs={'class': 'game-db-title'})
@@ -125,6 +131,9 @@ def parse_games(soup):
         game = Game()
 
         formatted_title = format_title(title_html.text)
+
+        if formatted_title in skipped_games:
+            continue
 
         game.title = title_translate(formatted_title, metacritic_title_lookup)
 
@@ -162,7 +171,10 @@ def title_translate(title, title_lookup):
     print('{} --> {}'.format(title, new_title))
     return new_title
 
-how_long_title_lookup = {}
+
+how_long_title_lookup = {
+    'Shadow of the Colossus': 'Shadow of the Colossus (2018)'
+}
 # how_long_title_lookup = {
 #     'LEGO Rock Band': 'Lego Rock Band (Console)',
 #     'Mortal Kombat': 'Mortal Kombat (2011)',
@@ -195,7 +207,7 @@ def get_howlongtobeats(games):
         title = title_translate(game.title, how_long_title_lookup)
         print_marker(title, index)
         response = query_howlongtobeat(title)
-        parse_howlongtobeat(response, game)
+        parse_howlongtobeat(response, game, title)
     return
 
 
@@ -246,7 +258,7 @@ def get_scores(games):
         response_json = json.loads(response.text)
 
         result_ = response_json['result']
-        game.score = 0 if result_ == 'No result' else result_['score']
+        game.score = None if result_ == 'No result' else result_['score']
         pprint(str(game))
     return
 
@@ -256,7 +268,7 @@ if __name__ == '__main__':
     url = 'http://profiles.exophase.com/robotherapy/'
     response = requests.get(url)
     soup = BeautifulSoup(response.text, features="html.parser")
-    games = parse_games(soup)[:20]
+    games = parse_games(soup)
     print('Number of Games: {}'.format(len(games)))
     print('Getting scores')
     get_scores(games)
@@ -290,17 +302,18 @@ if __name__ == '__main__':
     #     Game(title='The Jackbox Party Pack 2', score=0, main=0),
     #     Game(title='Red Dead Redemption 2', score=94, main=47)
     # ]
+    games = [game for game in games if game.score not in [None, 0]]
 
-    x = [game.score for game in games]
+    scores = [game.score for game in games]
     y = [(0 if game.main is None else Decimal(game.main)) for game in games]
 
     plt.figure(num=None, figsize=(10, 10), dpi=80, facecolor='w', edgecolor='k')
-    plt.scatter(x, y)
+    plt.scatter(scores, y)
     plt.xlabel('Score')
     plt.ylabel('Main hours')
 
     for i, game in enumerate(games):
-        plt.annotate(game.title, (x[i], y[i]))
+        plt.annotate(game.title, (scores[i], y[i]))
 
     plt.show()
 
