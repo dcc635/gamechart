@@ -241,7 +241,8 @@ PLATFORM_MAPPING = {
     'Xbox 360': 'xbox-360',
     'Steam': 'pc',
     'Xbox One': 'xbox-one',
-    'Vita': 'playstation-vita'
+    'Vita': 'playstation-vita',
+    'Switch': 'switch'
 }
 
 
